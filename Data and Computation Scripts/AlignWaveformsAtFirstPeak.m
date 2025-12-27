@@ -165,11 +165,8 @@ function [alignedWaveform, shiftIndices] = AlignWaveformsAtFirstPeak(waveform3DM
                     contextEnd = min(length(currentWaveform), peakIdx + 5);
                     contextValues = currentWaveform(contextStart:contextEnd);
 
-                    % Format context values as a string with clear separation
-                    contextStr = '';
-                    for i = 1:length(contextValues)
-                        contextStr = [contextStr, sprintf('%.4f ', contextValues(i))];
-                    end
+                    % Format context values as a string (vectorized - avoids O(n²) string growth)
+                    contextStr = sprintf('%.4f ', contextValues);
 
                     % Log the information in table format
                     fprintf(logFile, '[%3d,%3d]  | %-15d | %-15.2f | %-15.4f | %s\n', ...

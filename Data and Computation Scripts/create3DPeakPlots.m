@@ -116,29 +116,51 @@ function createAligned3DPlot(peakData, t, X_Coordinates, Y_Coordinates, numY_sub
 
     numWaveforms = length(peakData);
 
-    % Step 1: ROBUST PEAK ALIGNMENT ANALYSIS
+    % Step 1: ROBUST PEAK ALIGNMENT ANALYSIS (with caching)
     fprintf('=== ROBUST PEAK ALIGNMENT ANALYSIS ===\n');
 
     try
-        % DEBUG: Check peak data structure before analysis
-        fprintf('DEBUG: Checking peak data structure...\n');
-        validPeakCount = 0;
-        for i = 1:min(10, length(peakData))
-            if ~isempty(peakData{i}) && isstruct(peakData{i})
-                transitions = peakData{i};
-                if isfield(transitions, 'TransitionType')
-                    peakIndices = find(transitions.TransitionType == 1);
-                    fprintf('  Waveform %d: %d peaks detected\n', i, length(peakIndices));
-                    if length(peakIndices) >= 2
-                        validPeakCount = validPeakCount + 1;
+        % Check for cached alignment analysis results
+        alignCacheFolder = fullfile(pwd, 'Peak Cache');
+        if ~exist(alignCacheFolder, 'dir'), mkdir(alignCacheFolder); end
+
+        % Create cache key based on peak data characteristics
+        alignCacheKey = struct('numWaveforms', numWaveforms, 'peakType', peakDetectionType, ...
+            'gridSize', [numY_sub, numX_sub], 'timeRange', [t(1), t(end)]);
+        alignCacheHash = generatePeakCacheHash(alignCacheKey);
+        alignCacheFile = fullfile(alignCacheFolder, sprintf('RobustAlignCache_%s.mat', alignCacheHash));
+
+        if exist(alignCacheFile, 'file')
+            % Load cached alignment analysis
+            fprintf('Loading cached robust alignment analysis: %s\n', alignCacheFile);
+            cachedAlign = load(alignCacheFile);
+            alignmentReference = cachedAlign.alignmentReference;
+            analysisResults = cachedAlign.analysisResults;
+        else
+            % DEBUG: Check peak data structure before analysis
+            fprintf('DEBUG: Checking peak data structure...\n');
+            validPeakCount = 0;
+            for i = 1:min(10, length(peakData))
+                if ~isempty(peakData{i}) && isstruct(peakData{i})
+                    transitions = peakData{i};
+                    if isfield(transitions, 'TransitionType')
+                        peakIndices = find(transitions.TransitionType == 1);
+                        fprintf('  Waveform %d: %d peaks detected\n', i, length(peakIndices));
+                        if length(peakIndices) >= 2
+                            validPeakCount = validPeakCount + 1;
+                        end
                     end
                 end
             end
-        end
-        fprintf('DEBUG: %d waveforms have sufficient peaks for analysis\n', validPeakCount);
+            fprintf('DEBUG: %d waveforms have sufficient peaks for analysis\n', validPeakCount);
 
-        % Use statistical analysis to determine optimal alignment reference
-        [alignmentReference, analysisResults] = RobustPeakAlignmentAnalyzer.determineOptimalAlignment(peakData, t, true);
+            % Use statistical analysis to determine optimal alignment reference
+            [alignmentReference, analysisResults] = RobustPeakAlignmentAnalyzer.determineOptimalAlignment(peakData, t, true);
+
+            % Save to cache
+            fprintf('Saving robust alignment cache: %s\n', alignCacheFile);
+            save(alignCacheFile, 'alignmentReference', 'analysisResults', 'alignCacheKey', '-v7.3');
+        end
 
         % Extract robust alignment parameters
         referenceTime = alignmentReference.referenceTime;

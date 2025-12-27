@@ -45,66 +45,88 @@ function ComputeAndTransformStats(waveformFull, t, X_Coordinates, Y_Coordinates,
     numX = size(waveformFull, 2);
     numSegments = length(segmentedData);
 
-    % Compute TOF and Depth on the full waveform once
+    % Compute TOF and Depth on the full waveform once (with caching)
     tofMap = nan(numY, numX);
     depthMap = nan(numY, numX);
     if any(strcmp(statsToCompute, 'TOF')) || any(strcmp(statsToCompute, 'Depth'))
-        for y = 1:numY
-            for x = 1:numX
-                waveform = squeeze(waveformFull(y, x, :));
-                % Use findpeaks to detect the first significant peak
-                [pks, locs] = findpeaks(abs(waveform), 'SortStr', 'descend', 'NPeaks', 1);
-                if ~isempty(locs)
-                    tof = t(locs(1)); % TOF in seconds (first peak)
-                    tofMap(y, x) = tof;
-                    depthMap(y, x) = (Speed_of_Wave * tof / 2) * 1000; % Depth in mm
-                end
-            end
+        % Check for cached TOF/Depth maps
+        caseNumber = FileNamingArray(2);
+        tofCacheFile = fullfile(folderPath, sprintf('TOFDepthCache_Case%d_%dx%d.mat', caseNumber, numY, numX));
+
+        if exist(tofCacheFile, 'file')
+            % Load cached TOF/Depth maps
+            fprintf('Loading cached TOF/Depth maps: %s\n', tofCacheFile);
+            cachedTOF = load(tofCacheFile);
+            tofMap = cachedTOF.tofMap;
+            depthMap = cachedTOF.depthMap;
+        else
+            % Compute TOF/Depth (vectorized)
+            fprintf('Computing TOF/Depth maps...\n');
+            absWaveform = abs(waveformFull); % [Y, X, T]
+            [~, maxIdx] = max(absWaveform, [], 3); % Index of max along time dimension
+
+            % Convert indices to TOF values [s]
+            tofMap = t(maxIdx);
+
+            % Depth = (Speed * TOF / 2) * 1000 to convert to mm
+            % d = v * t / 2 (divide by 2 for round-trip)
+            depthMap = (Speed_of_Wave * tofMap / 2) * 1000; % [mm]
+
+            % Save to cache
+            fprintf('Saving TOF/Depth cache: %s\n', tofCacheFile);
+            save(tofCacheFile, 'tofMap', 'depthMap', 'Speed_of_Wave', '-v7.3');
         end
     end
 
-    % Compute RelativeTOF per segment
+    % Compute RelativeTOF per segment (vectorized)
     relativeTofMaps = cell(numSegments, 1);
     if any(strcmp(statsToCompute, 'RelativeTOF'))
         for seg = 1:numSegments
-            segmentTofMap = nan(numY, numX);
             segmentTime = segmentedData{seg}.time;
-            segmentWaveform = segmentedData{seg}.waveform;
-            % Compute TOF within this segment's time window
-            for y = 1:numY
-                for x = 1:numX
-                    waveform = squeeze(segmentWaveform(y, x, :));
-                    [pks, locs] = findpeaks(abs(waveform), 'SortStr', 'descend', 'NPeaks', 1);
-                    if ~isempty(locs)
-                        segmentTofMap(y, x) = segmentTime(locs(1));
-                    end
-                end
-            end
+            segmentWaveform = segmentedData{seg}.waveform; % [Y, X, T_seg]
+
+            % Vectorized: find max absolute amplitude along time dimension
+            absSegment = abs(segmentWaveform);
+            [~, maxIdx] = max(absSegment, [], 3); % [Y, X] indices into T_seg
+
+            % Convert indices to TOF values
+            segmentTofMap = segmentTime(maxIdx); % [Y, X] in seconds
+
             % Compute the mean TOF for this segment (excluding NaNs)
             meanTof = mean(segmentTofMap(:), 'omitnan');
             if isnan(meanTof)
                 meanTof = 0; % If all values are NaN, set mean to 0
             end
             % Compute RelativeTOF as deviation from the mean
-            relativeTofMaps{seg} = segmentTofMap - meanTof; % In seconds
+            relativeTofMaps{seg} = segmentTofMap - meanTof; % [s]
         end
     end
 
-    % Helper function for statistic computation, now taking seg as an argument
-    computeStat = @(data, statType, seg) struct(...
-        'RMS', sqrt(mean(data.^2, 3, 'omitnan')), ...
-        'MaxAmplitude', computeSignedMaxAmplitude(data), ... % Modified to preserve sign
-        'Variance', var(data, 0, 3, 'omitnan'), ...
-        'Skewness', skewness(data, 1, 3), ...
-        'Kurtosis', kurtosis(data, 1, 3), ...
-        'TOF', tofMap, ... % Static TOF map
-        'Depth', depthMap, ... % Static Depth map
-        'RelativeTOF', relativeTofMaps{seg}).(statType); % Varies per segment
-
-    % Helper function to compute max amplitude that preserves sign (vectorized)
-    function signedMax = computeSignedMaxAmplitude(data)
-        % Delegate to Utils/computeSignedMaxAmplitudeVec for performance
-        signedMax = computeSignedMaxAmplitudeVec(data);
+    % Helper function for statistic computation - computes ONLY the requested stat
+    % (Optimized: previous version computed ALL stats then selected one)
+    function statResult = computeStat(data, statType, seg)
+        switch statType
+            case 'RMS'
+                statResult = sqrt(mean(data.^2, 3, 'omitnan'));
+            case 'MaxAmplitude'
+                % Delegate to Utils/computeSignedMaxAmplitudeVec for performance
+                statResult = computeSignedMaxAmplitudeVec(data);
+            case 'Variance'
+                statResult = var(data, 0, 3, 'omitnan');
+            case 'Skewness'
+                statResult = skewness(data, 1, 3);
+            case 'Kurtosis'
+                statResult = kurtosis(data, 1, 3);
+            case 'TOF'
+                statResult = tofMap; % Precomputed static TOF map
+            case 'Depth'
+                statResult = depthMap; % Precomputed static Depth map
+            case 'RelativeTOF'
+                statResult = relativeTofMaps{seg}; % Varies per segment
+            otherwise
+                error('ComputeAndTransformStats:UnknownStat', ...
+                    'Unknown statistic type: %s', statType);
+        end
     end
 
     h = waitbar(0, sprintf('Computing %s stats...', transformType));

@@ -42,7 +42,7 @@ TotalSlices                     = 200; % Number of slices
 
 %% IV. Alignment Settings
 
-AlignWaveFormsAtFirstPeak = 0;                  % 1 = align waveforms at first peak, 0 = keep original
+AlignWaveFormsAtFirstPeak = 1;                  % 1 = align waveforms at first peak, 0 = keep original
 Align_Between_Time_Range  = [0.3e-6 0.4e-6];   % Find first peak between these time ranges.
 AlignPeakType = 'positive';                     % Options: 'positive', 'negative', or 'both'
 
@@ -76,10 +76,10 @@ Enable3DPeakVallyPlotting = 1; % 1 = Enable 3D peak/valley plot generation, 0 = 
 
 
 % Peak Detection Settings
-PeakDetectionType = 'peaks'; % Options: 'peaks', 'valleys', 'both'
+PeakDetectionType = 'both'; % Options: 'peaks', 'valleys', 'both'
 minPeakHeight = 0.1;        % Minimum peak height as fraction of max amplitude
 minPeakDistance = 2;        % Minimum distance between peaks in samples (must be >= 1)
-minPeakProminence = 0.2;    % Minimum peak prominence as fraction of max amplitude
+minPeakProminence = 0.1;    % Minimum peak prominence as fraction of max amplitude
 useSlopeDetection = true;   % Use slope-based detection for better accuracy
 slopeThreshold = 0.05;      % Slope threshold for detecting transitions
 
@@ -155,52 +155,53 @@ else
 
     % Align waveforms at first peak if enabled (before trimming)
     if exist('AlignWaveFormsAtFirstPeak', 'var') && AlignWaveFormsAtFirstPeak == 1
-    % Check if time range for alignment is specified
-    if exist('Align_Between_Time_Range', 'var') && ~isempty(Align_Between_Time_Range) && length(Align_Between_Time_Range) == 2
-        % Check if peak type and diagnostics are specified
-        if exist('AlignPeakType', 'var') && ~isempty(AlignPeakType)
-            if exist('AlignDiagnostics', 'var') && ~isempty(AlignDiagnostics)
-                if exist('AlignDiagnosticSamples', 'var') && ~isempty(AlignDiagnosticSamples)
-                    [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0, Align_Between_Time_Range, AlignPeakType, AlignDiagnostics, AlignDiagnosticSamples);
-                else
-                    [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0, Align_Between_Time_Range, AlignPeakType, AlignDiagnostics);
-                end
-            else
-                [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0, Align_Between_Time_Range, AlignPeakType);
-            end
+        % Determine alignment parameters
+        if exist('Align_Between_Time_Range', 'var') && ~isempty(Align_Between_Time_Range)
+            alignTimeRange = Align_Between_Time_Range;
         else
-            % Use default peak type (positive)
-            if exist('AlignDiagnostics', 'var') && ~isempty(AlignDiagnostics)
-                [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0, Align_Between_Time_Range, 'positive', AlignDiagnostics);
-            else
-                [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0, Align_Between_Time_Range);
-            end
+            alignTimeRange = [];
         end
-    else
-        % No time range specified
         if exist('AlignPeakType', 'var') && ~isempty(AlignPeakType)
-            if exist('AlignDiagnostics', 'var') && ~isempty(AlignDiagnostics)
-                if exist('AlignDiagnosticSamples', 'var') && ~isempty(AlignDiagnosticSamples)
-                    [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0, [], AlignPeakType, AlignDiagnostics, AlignDiagnosticSamples);
-                else
-                    [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0, [], AlignPeakType, AlignDiagnostics);
-                end
-            else
-                [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0, [], AlignPeakType);
-            end
+            alignPeakTypeVal = AlignPeakType;
         else
-            % Use default peak type (positive)
-            if exist('AlignDiagnostics', 'var') && ~isempty(AlignDiagnostics)
-                if exist('AlignDiagnosticSamples', 'var') && ~isempty(AlignDiagnosticSamples)
-                    [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0, [], 'positive', AlignDiagnostics, AlignDiagnosticSamples);
-                else
-                    [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0, [], 'positive', AlignDiagnostics);
-                end
-            else
-                [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(waveformFull, t_full, 0);
-            end
+            alignPeakTypeVal = 'positive';
         end
-    end
+
+        % Build alignment cache key and check for cached results
+        alignmentCacheKey = struct('dataset', DATASET, 'timeRange', alignTimeRange, ...
+            'peakType', alignPeakTypeVal, 'dataSize', size(waveformFull));
+        alignmentHash = generateAlignmentCacheHash(alignmentCacheKey);
+
+        alignmentCacheFolder = fullfile(pwd, 'Alignment Cache');
+        if ~exist(alignmentCacheFolder, 'dir'), mkdir(alignmentCacheFolder); end
+        alignmentCacheFile = fullfile(alignmentCacheFolder, ...
+            sprintf('AlignmentCache_Dataset%d_%s.mat', DATASET, alignmentHash));
+
+        if exist(alignmentCacheFile, 'file') && SkipOverWriteRequests
+            % Load and apply cached alignment
+            fprintf('Loading cached alignment: %s\n', alignmentCacheFile);
+            cachedData = load(alignmentCacheFile);
+            shiftIndices = cachedData.shiftIndices;
+            waveformFull = applyCachedAlignment(waveformFull, shiftIndices);
+        else
+            % Compute alignment fresh
+            fprintf('Computing waveform alignment...\n');
+            diagEnabled = exist('AlignDiagnostics', 'var') && AlignDiagnostics;
+            diagSamples = 100;
+            if exist('AlignDiagnosticSamples', 'var'), diagSamples = AlignDiagnosticSamples; end
+
+            if diagEnabled
+                [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(...
+                    waveformFull, t_full, 0, alignTimeRange, alignPeakTypeVal, true, diagSamples);
+            else
+                [waveformFull, shiftIndices] = AlignWaveformsAtFirstPeak(...
+                    waveformFull, t_full, 0, alignTimeRange, alignPeakTypeVal);
+            end
+
+            % Save to cache
+            fprintf('Saving alignment cache: %s\n', alignmentCacheFile);
+            save(alignmentCacheFile, 'shiftIndices', 'alignmentCacheKey', '-v7.3');
+        end
 
         % Update the original matrices with aligned data
         waveform3DMatrix = waveformFull;
