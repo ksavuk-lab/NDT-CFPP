@@ -57,7 +57,7 @@ function [waveformArray, t, X_Coordinates, Y_Coordinates, numY_sub, numX_sub] = 
         error('Failed to load dataset %d: %s', DATASET, ME.message);
     end
     
-    % Step 2: Apply alignment if requested
+    % Step 2: Apply alignment if requested (with caching)
     if alignAtFirstPeak == 1
         fprintf('Applying waveform alignment...\n');
 
@@ -70,14 +70,33 @@ function [waveformArray, t, X_Coordinates, Y_Coordinates, numY_sub, numX_sub] = 
         tSize = DataStructure.tSize;
         t_full = dt:dt:(tSize * dt);
 
-        % Apply alignment using the correct function signature
-        if exist('AlignWaveformsAtFirstPeak', 'file')
+        % Check for cached alignment
+        alignmentCacheKey = struct('dataset', DATASET, 'timeRange', [], ...
+            'peakType', 'positive', 'dataSize', size(waveform3DMatrix));
+        alignmentHash = generateAlignmentCacheHash(alignmentCacheKey);
+
+        alignmentCacheFolder = fullfile(pwd, 'Alignment Cache');
+        if ~exist(alignmentCacheFolder, 'dir'), mkdir(alignmentCacheFolder); end
+        alignmentCacheFile = fullfile(alignmentCacheFolder, ...
+            sprintf('AlignmentCache_Dataset%d_%s.mat', DATASET, alignmentHash));
+
+        if exist(alignmentCacheFile, 'file')
+            % Load and apply cached alignment
+            fprintf('Loading cached alignment: %s\n', alignmentCacheFile);
+            cachedAlign = load(alignmentCacheFile);
+            waveform3DMatrix = applyCachedAlignment(waveform3DMatrix, cachedAlign.shiftIndices);
+            DataStructure.waveform3DMatrix = waveform3DMatrix;
+            fprintf('Cached alignment applied.\n');
+        elseif exist('AlignWaveformsAtFirstPeak', 'file')
             try
-                % Use default parameters for alignment
-                % AlignWaveformsAtFirstPeak(waveform3DMatrix, t, isEnvelope, timeRange, peakType, enableDiagnostics, numDiagnosticSamples)
-                [waveform3DMatrix, ~] = AlignWaveformsAtFirstPeak(waveform3DMatrix, t_full, 0);
+                % Compute alignment fresh
+                [waveform3DMatrix, shiftIndices] = AlignWaveformsAtFirstPeak(waveform3DMatrix, t_full, 0);
                 DataStructure.waveform3DMatrix = waveform3DMatrix;
                 fprintf('Waveform alignment completed.\n');
+
+                % Save to cache
+                fprintf('Saving alignment cache: %s\n', alignmentCacheFile);
+                save(alignmentCacheFile, 'shiftIndices', 'alignmentCacheKey', '-v7.3');
             catch ME
                 fprintf('Warning: Alignment failed (%s). Continuing without alignment.\n', ME.message);
             end
