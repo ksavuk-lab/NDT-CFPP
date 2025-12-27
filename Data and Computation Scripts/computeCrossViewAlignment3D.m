@@ -1,0 +1,89 @@
+function computeCrossViewAlignment3D(button, fig)
+    % COMPUTECROSSVIEWALIGNMENT3D - Iteratively align XtVsY and YtVsX views until convergence
+    % Imported from XtVsYPlot.m and adapted for 3D peak plot compatibility
+    %
+    % This function performs cross-sectional alignment on 3D peak data by:
+    % 1. Converting peak data to statistical maps
+    % 2. Iteratively aligning Y-slices (XtVsY view) and X-slices (YtVsX view)
+    % 3. Checking for convergence based on alignment cost improvement
+    %
+    % Inputs:
+    %   button - UI button handle (can be empty [])
+    %   fig    - Figure handle containing the 3D peak data
+    %
+    % The function expects figData to contain:
+    %   - alignmentData.originalStatMaps: Statistical maps from peak data
+    %   - Other spatial and temporal information
+    
+    userData = get(fig, 'UserData');
+
+    % Prevent multiple simultaneous computations
+    if isfield(userData, 'isComputingAlignment') && userData.isComputingAlignment
+        fprintf('Alignment computation already in progress. Please wait...\n');
+        return;
+    end
+
+    % Get data dimensions - check for the correct data structure
+    if isfield(userData, 'statDataArray') && ~isempty(userData.statDataArray) && ...
+       ~isempty(userData.statDataArray{1}) && isfield(userData.statDataArray{1}, 'maps')
+        [numY, numX] = size(userData.statDataArray{1}.maps{1});
+    else
+        fprintf('Error: No compatible data available for cross-view alignment\n');
+        fprintf('Expected userData.statDataArray with maps field\n');
+        return;
+    end
+
+    % Create non-blocking progress display using a separate figure
+    progressFig = figure('Name', 'Cross-Sectional Alignment Progress', ...
+                        'NumberTitle', 'off', ...
+                        'MenuBar', 'none', ...
+                        'ToolBar', 'none', ...
+                        'Resize', 'off', ...
+                        'Position', [100, 100, 500, 300], ...
+                        'CloseRequestFcn', @(~,~) []); % Prevent manual closing
+
+    % Create progress text area
+    progressText = uicontrol(progressFig, 'Style', 'text', ...
+                            'Units', 'normalized', ...
+                            'Position', [0.05, 0.1, 0.9, 0.8], ...
+                            'FontSize', 10, ...
+                            'FontName', 'Courier', ...
+                            'HorizontalAlignment', 'left', ...
+                            'BackgroundColor', 'white', ...
+                            'String', sprintf(['Initializing Cross-View Alignment...\n\n' ...
+                                'Configuration:\n' ...
+                                '• Grid size: %d Y-slices × %d X-slices\n' ...
+                                '• Total grid points: %d\n' ...
+                                '• Maximum iterations: 10\n' ...
+                                '• Convergence threshold: 0.1%%\n' ...
+                                '• Zero values excluded from processing\n\n' ...
+                                'Starting alignment computation...'], numY, numX, numY*numX));
+
+    % Create progress bar
+    progressBar = uicontrol(progressFig, 'Style', 'text', ...
+                           'Units', 'normalized', ...
+                           'Position', [0.05, 0.02, 0.9, 0.06], ...
+                           'BackgroundColor', [0.8, 0.8, 0.8], ...
+                           'String', 'Progress: 0%');
+
+    progressDlg = struct('Figure', progressFig, 'Text', progressText, 'Bar', progressBar);
+
+    % Store progress dialog in userData
+    userData.progressDialog = progressDlg;
+    userData.isComputingAlignment = true;
+    userData.mainFigure = fig; % Store reference to main figure for live updates
+    set(fig, 'UserData', userData);
+    drawnow;
+
+    % Update status
+    statusText = findobj(fig, 'Tag', 'AlignmentStatusText');
+    if ~isempty(statusText)
+        set(statusText, 'String', 'Cross-view aligning...');
+    end
+
+    % Start computation in background
+    timer_obj = timer('TimerFcn', @(~,~) computeCrossViewAlignmentBackground3D(fig), ...
+                      'StartDelay', 0.1, 'ExecutionMode', 'singleShot', ...
+                      'Name', 'CrossViewTimer3D');
+    start(timer_obj);
+end

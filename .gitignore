@@ -1,0 +1,43 @@
+# ===========================================
+# NDT-CFPP .gitignore
+# Excludes generated data, caches, and temp files
+# ===========================================
+
+# --- Generated Data & Cache Folders ---
+Peak Cache/
+Peak Extraction Results/
+Saved Plots/
+Saved Wave Forms/
+Statistical Analysis/
+Logs/
+
+# --- MATLAB Generated Files ---
+*.asv
+*.m~
+*.autosave
+*.slxc
+slprj/
+codegen/
+
+# --- MAT Data Files (large binary files) ---
+# Uncomment if you want to exclude all .mat files:
+# *.mat
+
+# --- macOS System Files ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# --- IDE/Editor Files ---
+.idea/
+*.swp
+*.swo
+*~
+.vscode/
+
+# --- Temporary Files ---
+*.tmp
+*.temp
+*.log
+
