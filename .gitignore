@@ -11,6 +11,9 @@ Saved Wave Forms/
 Statistical Analysis/
 Logs/
 
+# --- Sample Data (large .mat files excluded, README included) ---
+Sample Data/*.mat
+
 # --- MATLAB Generated Files ---
 *.asv
 *.m~

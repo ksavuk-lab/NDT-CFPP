@@ -9,17 +9,28 @@ function [DataStructure] = loadData(DATASET)
     % Define multiple base directory paths to try (dynamic first, then fallbacks)
     baseDirs = {};
 
+    % 0) Sample Data folder in repository (for users who download from GitHub)
+    % This is the recommended location for new users
+    thisFile = mfilename('fullpath');
+    if ~isempty(thisFile)
+        codeDir = fileparts(fileparts(thisFile)); % Go up from 'Data and Computation Scripts'
+        sampleDataDir = fullfile(codeDir, 'Sample Data', filesep);
+        baseDirs{end+1} = sampleDataDir;
+    end
+    % Also check relative to pwd
+    baseDirs{end+1} = fullfile(pwd, 'Sample Data', filesep);
+
     % 1) Environment override (export NDE_DATA_ROOT=/path/to/Data)
     dataRootEnv = getenv('NDE_DATA_ROOT');
     if ~isempty(dataRootEnv)
         baseDirs{end+1} = fullfile(dataRootEnv, 'LaminateBeam', 'L0', filesep); %#ok<AGROW>
-        baseDirs{end+1} = [dataRootEnv filesep]; 
+        baseDirs{end+1} = [dataRootEnv filesep];
     end
 
     % 2) Relative to repo root: ../../Data/LaminateBeam/L0 from code root
     try
         repoRelative = fullfile(pwd, '..', '..', 'Data', 'LaminateBeam', 'L0', filesep);
-        baseDirs{end+1} = repoRelative; 
+        baseDirs{end+1} = repoRelative;
     catch
     end
 
@@ -27,7 +38,7 @@ function [DataStructure] = loadData(DATASET)
     try
         homeDir = getenv('HOME');
         xUni = fullfile(homeDir, 'Documents', 'X_ University', 'Uni Research', 'NDT', 'NDE_SDSU-USD', 'Data', 'LaminateBeam', 'L0', filesep);
-        baseDirs{end+1} = xUni; 
+        baseDirs{end+1} = xUni;
     catch
     end
 

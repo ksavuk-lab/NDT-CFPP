@@ -42,7 +42,7 @@ TotalSlices                     = 200; % Number of slices
 
 %% IV. Alignment Settings
 
-AlignWaveFormsAtFirstPeak = 1;                  % 1 = align waveforms at first peak, 0 = keep original
+AlignWaveFormsAtFirstPeak = 0;                  % 1 = align waveforms at first peak, 0 = keep original
 Align_Between_Time_Range  = [0.3e-6 0.4e-6];   % Find first peak between these time ranges.
 AlignPeakType = 'positive';                     % Options: 'positive', 'negative', or 'both'
 
